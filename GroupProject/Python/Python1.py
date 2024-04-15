@@ -32,7 +32,7 @@ class SSLChecker:          #This class provides functionality to establish SSL c
 
     def get_cert(self, host, port, socks_host=None, socks_port=None):    #Establish a connection to a specified host + retrieve its SSL Cert
         if socks_host:                                                   #['socks_host + port'] are optional parameters for specifying a SOCKS proxy server
-            import socks                                                 
+            import socks                                                  #'self' refers to the instance of a class
 
             socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, socks_host, int(socks_port), True)  #Configures the socket to use the SOCKS proxy
             socket.socket = socks.socksocket                                                   
@@ -240,17 +240,157 @@ class SSLChecker:          #This class provides functionality to establish SSL c
         context[host] = self.get_cert_info(host, cert, resolved_ip)    #Assigns the certificate information obtained from the 'get_cert_info' method to the 'context' dictionary
         context[host]['tcp_port'] = int(port)                          #This line adds the TCP port used for the connection to the 'context' dictionary
 
-######## Analyze the certificate if enabled ######## 
+######## Exception Handling ######## 
 
-    if user_args.analyze:
-        context = self.analyze_ssl(host, context, user_args)
+    if user_args.analyze:                                             #Checks if SSL cert analysis is enabled
+        context = self.analyze_ssl(host, context, user_args)          #Calls the 'analyze_ssl' method to perform additional analysis on the SSL cert of the host
 
-    if not user_args.json_true and not user_args.summary_true:
-        self.print_status(host, context, user_args.analyze)
-except SSL.SysCallError:
-    if not user_args.json_true:
-        print('\t{}[\u2717]{} {:<20s} Failed: Misconfigured SSL/TLS\n'.format(Clr.RED, Clr.RST, host))
-        self.total_failed += 1
-except Exception as error:
-    if not user_args.json_true:
-        print('\t{}[\u2717]{} {:<20s} Failed: {}\n'.format(Clr.RED, Clr.RST, host, error))
+    if not user_args.json_true and not user_args.summary_true:        #If neither JSON output nor summary output is requested, it calls the 'print_status' method
+        self.print_status(host, context, user_args.analyze)            #to print detailed info about the SSL cert + host
+    except SSL.SysCallError:                                          #'SSL.SysCallError' exception is caught of there's an issue related to SSL/TLS misconfiguration.
+        if not user_args.json_true:                                    #(aka: Failure in establishing a secure connection)
+            print('\t{}[\u2717]{} {:<20s} Failed: Misconfigured SSL/TLS\n'.format(Clr.RED, Clr.RST, host))  #For each exception, it prints an error message indicating the 
+            self.total_failed += 1                                                                           #failure + increments the 'total_failed' counter
+    except Exception as error:         
+        if not user_args.json_true:
+            print('\t{}[\u2717]{} {:<20s} Failed: {}\n'.format(Clr.RED, Clr.RST, host, error))  #'Exception': This catches any other general exception
+            self.total_failed += 1
+    except KeyboardInterrupt:
+        print('{}Canceling script.....{}\n'.format(Clr.YELLOW, Clr.RST))  #'KeyboardInterrupt': If the user cancels the script by pressing Ctrl+C, it prints a message
+        sys.exit(1)                                                        #indicating the cancellation + exits the script with an error code
+    
+    if not user_args.json_true:     #Message is only printed if JSON output is not requested
+        self.border_msg('Successful: {} | Failed: {} | Valid: {} | Warning: {} | Expired: {} | Duration: {} '.format(len(hosts) - 
+                            self.total_failed, self.total_failed, self.total_valid, self.total_warning,   #Prints summary of analysis results including the duration
+                                self.total_expired, datetime.now() - start_time))                          #of the analysis
+        if user_args.summary_true:   #Checks if user has requested only a summary without detailed input
+            return                   #Returns from method, effectively exiting the script, this allows users to quickly get a summary without detailed output
+        
+######## Handles exporting analysis results in various formats (CSV, HTML, JSON) ########
+
+        #CSV Export
+        if user_args.csv_enabled:                                       #Checks if CSV export is enabled('-c/--csv' option specified)
+            self.export_csv(context, user_args.csv_enabled, user_args)  #If enabled, exports the analysis results to a CSV file
+
+        #HTML Export
+        if user_args.html_true:           #Checks if HTML export is enabled('-x/--html' option specified)
+            self.export_html(context)     #If enabled, exports the analysis results to a HTML file
+              
+        #Script Execution as Module
+        if __name__ != '__main__':        #Checks if script is being used as a module rather than executed directly
+            return json.dumps(context)    #If true, it returns the analysis results in JSON format
+
+        #JSON Output
+        if user_args.json_true:           #Checks if JSON output is enabled('-j/--json' option specified)
+            print(json.dumps(context))    #If enabled, it print the analysis results in JSON format
+    
+        #Saving JSON Files
+        if user_args.json_save_true:                                      #Checks if saving JSON files if enabled('--json-save' option specified)
+            for host in context.keys():                                   #If enabled, it iterates over each host in the 'context' dictionary + saves its corresponding analysis results to a JSON file
+                with open(host + '.json', 'w', encoding='UTF-8') as fp:   #Each JSON file is named after the host + saved with a '.json' extension
+                    fp.write(json.dumps(context[host]))
+
+######## Exporting analysis results to a CSV file with proper column headers + rows ########
+
+        def export_csv(self, context, filename, user_args):                        #Exports analysis results stored in the 'context' dictionary to a CSV file
+        
+        if user_args.verbose:                                                      #Checks if verbose mode is enabled
+            print('{}Generating CSV export{}\n'.format(Clr.YELLOW, Clr.RST))       #If enabled, it prints a message indicating that CSV export is being generated
+
+        with open(filename, 'w') as csv_file:                                      #Opens the file in write mode
+            csv_writer = DictWriter(csv_file, list(context.items())[0][1].keys())  #It initializes a 'DictWriter' object, 'csv_writer', with the CSV file + the keys from the first item in the 'context' dict(assuming all items have the same keys)
+            csv_writer.writeheader()                                               #Writes the header row
+            for host in context.keys():                                            #It iterates over each host in the 'context' dict + writes the corresponding analysis 
+                csv_writer.writerow(context[host])                                  #results to the CSV file using 'writerow()'
+
+######## Exporting analysis results to HTML + filtering hostnames ########
+
+    def export_html(self, context):                                                
+        html = json2html.convert(json=context)                               #Uses the 'json2html' library to convert the JSON-formatted analysis results('context') to HTML
+        file_name = datetime.strftime(datetime.now(), '%Y_%m_%d_%H_%M_%S')   #HTML content is then written to a file with a filename based on the current timestamp
+        with open('{}.html'.format(file_name), 'w') as html_file:            #Opens a new HTML file with the generated filename in write mode
+            html_file.write(html)                                            #Writes the HTML content to the file
+
+        return
+ 
+    def filter_hostname(self, host):                                                 #Removes common prefixes like 'http://'
+        host = host.replace('http://', '').replace('https://', '').replace('/', '')  #It ensures the 'host' variable contains only the clean hostname without any unnecessary characters
+        port = 443                                                                   #Initializes the 'port' variable with the default port number 443, typically used for https connections
+        if ':' in host:                                                              #Checks if a port number is specified in the hostname string, if a ';' is found, it indicates that a port number is specified
+            host, port = host.split(':')                                             #If a port number is specified, this line splits the 'host' string at the colon + assigns the resulting parts to the 'host' + 'port' variables
+
+        return host, port                #Returns the cleaned hostname + the port number(defaulting to 443 if not specified)
+
+######## Defining the Argument Parser options  ########
+
+    def get_args(self, json_args={}):                                    #'json_args' represents optional JSON arguments, used to override default behaviour or provide additional config settings
+        parser = ArgumentParser(prog='ssl_checker.py', add_help=False,   #Creates an ArgumentParser object names 'parser','prog' specifies the name of the program. 'add_help' = false, no help options will be added automatically
+                                description="""Collects useful information about the given host's SSL certificates.""")  #Provides a brief description of the script's purpose
+
+        if len(json_args) > 0:                           #Checks if any JSON arguments are provided or if the 'json_args' dict is not empty
+            args = parser.parse_args()                   #Parses command-line arguments using the configured ArgumentParser, creating an 'args' object
+            setattr(args, 'json_true', True)             #Sets the attribute 'json_true' of the 'args' object to 'True', indicating that JSON output is requested
+            setattr(args, 'verbose', False)              #Sets the attribute 'verbose' of the 'args' object to 'False', indicating that verbose mode is not requested
+            setattr(args, 'csv_enabled', False)
+            setattr(args, 'html_true', False)
+            setattr(args, 'json_save_true', False)
+            setattr(args, 'socks', False)
+            setattr(args, 'analyze', False)
+            setattr(args, 'hosts', json_args['hosts'])
+            return args                                  #After setting the attributes, it returns the modified 'args' object
+
+#This section sets up a variety of command-line arguments, allowing users to customize the behaviour of the SSL checker script#
+        group = parser.add_mutually_exclusive_group(required=True)                     #Creates a mutually exclusive group, where only one argument within the group can be used
+        group.add_argument('-H', '--host', dest='hosts', nargs='*',                    #'-H': Specifies hosts directly on the command-line
+                           required=False, help='Hosts as input separated by space')   #Stores the hostnames in a list under the attribute 'hosts'
+        group.add_argument('-f', '--host-file', dest='host_file',                      #'-f': File containing hosts as input
+                           required=False, help='Hosts as input from a file')          #Stores the filename under the attribute 'host-file'
+        parser.add_argument('-s', '--socks', dest='socks',                             #'-s': SOCKS proxy for connection
+                            default=False, metavar='HOST:PORT',          
+                            help='Enable SOCKS proxy for connection')       
+        parser.add_argument('-c', '--csv', dest='csv_enabled',                         #'-c': CSV file export
+                            default=False, metavar='FILENAME.CSV',
+                            help='Enable CSV file export')
+        parser.add_argument('-j', '--json', dest='json_true',                          #'-j': JSON output in the output
+                            action='store_true', default=False,
+                            help='Enable JSON in the output')
+        parser.add_argument('-S', '--summary', dest='summary_true',                    #'-S': Summary output
+                            action='store_true', default=False,
+                            help='Enable summary output only')
+        parser.add_argument('-x', '--html', dest='html_true',                          #'-x': HTML file export
+                            action='store_true', default=False,
+                            help='Enable HTML file export')
+        parser.add_argument('-J', '--json-save', dest='json_save_true',                #'-J': JSON export individually per host
+                            action='store_true', default=False,
+                            help='Enable JSON export individually per host')
+        parser.add_argument('-a', '--analyze', dest='analyze',                         #'-a': SSL security analysis on the host
+                            default=False, action='store_true',
+                            help='Enable SSL security analysis on the host')
+        parser.add_argument('-v', '--verbose', dest='verbose',                         #'-v': Verbose mode to see what is going on
+                            default=False, action='store_true',
+                            help='Enable verbose to see what is going on')
+        parser.add_argument('-h', '--help', default=SUPPRESS,                          #'-h': Shows the help message + exits
+                            action='help',
+                            help='Show this help message and exit')
+
+        args = parser.parse_args()   #Parses the command-line arguments using the configured 'ArgumentParser', + stores the result in the 'args' object
+
+        # Get hosts from file if provided
+        if args.host_file:
+            with open(args.host_file) as f:          #Opens the specified host file in read mode + assigns the file object to the variable 'f'
+                args.hosts = f.read().splitlines()   #Reads the content of the file + split into lines
+                                                     #'args.hosts' represents the list of hosts extracted from the file
+        # Checks hosts list
+        if isinstance(args.hosts, list):  #Checks if the 'hosts' attribute of the 'args' object is an instance of a list
+            if len(args.hosts) == 0:      #Checks if the 'hosts' list is empty
+                parser.print_help()       #Prints the help message generated by the 'ArgumentParser'
+                sys.exit(0)               #Exits the script with a successful exit code(0)
+
+        return args   #Returns the modified 'args' object 
+
+
+     __name__ == '__main__':                                                   #Checks if the script is being executed directly as the main program
+        SSLCheckerObject = SSLChecker()                                        #Creates an instance of the 'SSLChecker' class named 'SSLCheckerObject'
+        SSLCheckerObject.show_result(SSLCheckerObject.get_args(json_args={}))  #Calls the 'show_result' method of the 'SSLCheckerObject' instance, passing the retrieved 
+                                                                                #command-line arguments as its argument
+    #Overall, this last bit of code ensures that when the script is run directly, it performs the SSL cert checking process based on the provided command-line arguments
