@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Search</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Merriweather&family=Montserrat:wght@400;900&family=Poppins&family=Sacramento&family=Ubuntu&display=swap"
+    rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      border: none;
+      outline: none;
+      list-style: none;
+      text-decoration: none;
+      box-sizing: border-box;
+      font-family: 'Poppins', sans-serif;
+      color: #ffffff;
+    }
+
+    .container {
+      height: 100vh;
+      width: 100vw;
+      background-color: #11191F;
+      display: flex;
+      justify-content: center;
+    }
+
+    .parent {
+      height: 100vh;
+      width: 75vw;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 45px 0;
+    }
+
+    .main-heading {
+      font-size: 3rem;
+    }
+
+    .main-heading:hover {
+      border-bottom: 1px solid #19B3E6;
+    }
+
+    .desc {
+      margin-top: 20px;
+      color: #6A7983;
+      font-size: 1.2rem;
+    }
+
+    .main-form {
+      height: 70%;
+      background-color: #141E26;
+      padding: 60px 45px;
+      border-radius: 5px;
+    }
+
+    .main-btn {
+      height: 65px;
+      width: 600px;
+      border-radius: 5px;
+      background-color: #19B3E6;
+      color: #ffffff;
+      font-size: 1.4rem;
+      cursor: pointer;
+    }
+
+    .main-btn:hover {
+      background-color: #4bd2ff;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="parent">
+      <div class="top-heading">
+        <h1><span class="main-heading">SSL Checker</span></h1>
+        <p class="desc">This Website will display SSL Certificate information after inputting the serial number of any certificates</p>
+      </div>
+      <form class="main-form" method="post" target="_blank">
+        <h1><span class="main-heading" style="font-size: 2.5rem;">Online Checker</span></h1>
+        <p class="desc">Enter a serial to check the SSL status</p>
+        <div class="serial-input">
+          {% csrf_token %} {{ form.as_p }}
+        </div>
+        <button class="main-btn" type="submit">Check</button>
+      </form>
+
+    </div>
+  </div>
+</body>
+
+</html>
